@@ -1,73 +1,79 @@
-"""Rule-based educational phishing-email indicator.
+import pandas as pd
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
 
-This program flags simple suspicious patterns. It is not a trained AI model
-and must not be treated as proof that an email is malicious or safe.
-"""
-import re
+def create_sample_dataset():
+    """
+    Creates a sample dataset for demonstration.
+    In your actual project, replace or load this from your CSV dataset file 
+    (e.g., pd.read_csv('emails.csv')).
+    """
+    data = {
+        'text': [
+            "Dear user, your bank account has been suspended. Click here to login and verify your password immediately.",
+            "Hey team, let's schedule our project sync meeting for tomorrow at 10 AM.",
+            "Urgent! You have won a lottery of $1,000,000. Claim your prize by clicking this link.",
+            "Hi John, please find attached the quarterly financial report for review.",
+            "Security alert: Someone tried to access your account. Reset your credentials using this secure link.",
+            "Reminder: Company picnic is scheduled for this coming Friday afternoon."
+        ],
+        # 1 = Phishing, 0 = Safe (Legitimate)
+        'label': [1, 0, 1, 0, 1, 0] 
+    }
+    return pd.DataFrame(data)
 
-URL_RE = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
-URGENT_TERMS = (
-    "urgent", "immediately", "verify your account", "account suspended",
-    "password expires", "act now", "payment failed", "claim your prize",
-)
-SENSITIVE_TERMS = (
-    "password", "one-time password", "otp", "bank details",
-    "credit card", "login credentials",
-)
+def main():
+    # 1. Load Dataset
+    print("Loading dataset...")
+    df = create_sample_dataset()
+    
+    # If loading from a file, use:
+    # df = pd.read_csv('path_to_your_dataset.csv')
+    
+    X = df['text']
+    y = df['label']
 
+    # 2. Extract Features using TF-IDF (Analyzes keywords, terms, and URL indicators)
+    print("Extracting email features using TF-IDF...")
+    vectorizer = TfidfVectorizer(stop_words='english', lowercase=True)
+    X_features = vectorizer.fit_transform(X)
 
-def analyze_email(sender: str, subject: str, body: str) -> tuple[int, list[str]]:
-    text = f"{subject}\n{body}".lower()
-    score = 0
-    findings = []
+    # 3. Split Dataset into Training and Testing Sets (80% train, 20% test)
+    X_train, X_test, y_train, y_test = train_test_split(
+        X_features, y, test_size=0.2, random_state=42
+    )
 
-    if any(term in text for term in URGENT_TERMS):
-        score += 1
-        findings.append("Urgent or pressure-based wording found.")
-    if any(term in text for term in SENSITIVE_TERMS):
-        score += 1
-        findings.append("A request or reference to sensitive information was found.")
+    # 4. Train the Model using Random Forest Classifier
+    print("Training the Machine Learning model...")
+    model = RandomForestClassifier(n_estimators=100, random_state=42)
+    model.fit(X_train, y_train)
 
-    urls = URL_RE.findall(body)
-    if urls:
-        findings.append(f"{len(urls)} link(s) found; inspect their destinations carefully.")
-        for url in urls:
-            host_match = re.search(r"https?://([^/]+)", url, re.IGNORECASE)
-            host = host_match.group(1).lower() if host_match else ""
-            if "@" in host or host.startswith("xn--"):
-                score += 1
-                findings.append("A link contains a potentially deceptive hostname pattern.")
-                break
+    # 5. Make Predictions
+    y_pred = model.predict(X_test)
 
-    sender_domain = sender.rsplit("@", 1)[-1].lower() if "@" in sender else ""
-    if not sender_domain or "." not in sender_domain:
-        score += 1
-        findings.append("Sender address/domain looks incomplete or unusual.")
+    # 6. Display Accuracy and Confusion Matrix
+    acc = accuracy_score(y_test, y_pred)
+    conf_matrix = confusion_matrix(y_test, y_pred)
 
-    if not findings:
-        findings.append("No listed warning pattern was found; this does not prove the email is safe.")
+    print("\n--- Model Evaluation Results ---")
+    print(f"Accuracy: {acc * 100:.2f}%")
+    print("\nConfusion Matrix:")
+    print(conf_matrix)
+    
+    print("\nClassification Report:")
+    print(classification_report(y_test, y_pred, zero_division=0))
 
-    return score, findings
-
-
-def main() -> None:
-    print("=== Phishing Email Detector (rule-based demo) ===")
-    sender = input("Sender email: ").strip()
-    subject = input("Email subject: ").strip()
-    print("Paste the email body. Finish with an empty line:")
-    lines = []
-    while True:
-        line = input()
-        if not line:
-            break
-        lines.append(line)
-    score, findings = analyze_email(sender, subject, "\n".join(lines))
-    print(f"\nRisk indicator score: {score}")
-    print("Review level:", "Higher risk indicators" if score >= 2 else "Some indicators" if score == 1 else "No listed indicators")
-    for finding in findings:
-        print("-", finding)
-    print("\nThis educational tool can produce false positives and false negatives. Verify messages independently.")
-
+    # Example classification of a new email
+    print("\n--- Testing a New Email ---")
+    new_email = ["Verify your bank details immediately via this link to avoid account closure."]
+    new_email_vectorized = vectorizer.transform(new_email)
+    prediction = model.predict(new_email_vectorized)
+    
+    result = "Phishing" if prediction[0] == 1 else "Safe"
+    print(f"Email Content: '{new_email[0]}'")
+    print(f"Classification Result: {result}")
 
 if __name__ == "__main__":
     main()
